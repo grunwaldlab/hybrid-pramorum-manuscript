@@ -1,0 +1,45 @@
+
+# List of shell commands for reference-based variant calling
+
+#alignment
+for fq in p_ramorum_*
+do
+  sample=$(basename $fq .fastq)
+  minimap2 -t 8 -ax map-ont ../../PR-102_v4.fasta $fq | \
+    samtools sort -o ${sample}.bam
+  samtools index ${sample}.bam
+done
+
+##first pass basecalling
+for bam in *.bam
+do
+  sample=$(basename $bam .bam)
+  run_clair3.sh \
+    --bam_fn=$bam \
+    --ref_fn=PR-102_v4.fasta \
+    --threads=8 \
+    --platform=ont \
+    --model_path=r1041_e82_400bps_sup_v410 \
+    --output=clair3_${sample}\
+          --enable_phasing\
+        --include_all_ctgs
+done
+
+#add readgroups
+for s in 9170 9202 9203 9381 9389 9390 9391; do
+  samtools addreplacerg \
+    -r "@RG\tID:${s}\tSM:${s}\tPL:ONT" \
+    -o ${s}.rg.bam \
+    ${s}.bam
+  samtools index ${s}.rg.bam
+done
+
+#second pass basecalling
+freebayes -f PR-102_v4.fasta --variant-input index_all_hyb_merge.phased.vcf.gz -r pchr1 --only-use-input-alleles --min-a
+lternate-count 2 -g 1000 --min-alternate-fraction 0.2 8959.rg.bam 9170.rg.bam 9202.rg.bam 9203.rg.bam 9381.rg.bam 9389.rg.bam 9390.rg.bam 9391.rg.bam
+
+#concatenating chromosomes
+bcftools concat -a -O z -o freebayes_merged.vcf.gz freebayes1.vcf.gz freebayes2.vcf.gz freebayes3.vcf.gz freebayes4.vcf.gz freebayes5.vcf.gz freebayes6.vcf.gz freebayes7.vcf.gz freebayes8.vcf.gz freebayes9.vcf.gz freebayes10.vcf.gz freebayes11.vcf.gz freebayes12.vcf.gz freebayes13.vcf.gz
+#
+#phasing with whatshap
+whatshap phase --reference PR-102_v4.fasta -o freebayes_wh.vcf freebayes_merged.vcf 8959.rg.bam 9170.rg.bam 9202.rg.bam 9203.rg.bam 9381.rg.bam 9389.rg.bam 9390.rg.bam 9391.rg.bam
